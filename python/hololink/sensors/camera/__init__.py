@@ -21,6 +21,8 @@ from . import _hololink_camera_sensor as camera_sensor  # noqa: F401
 # Define operator modules and classes for lazy loading
 _MODULES = [
     "imx274",
+    "cam678",
+    "cam380", 
 ]
 
 _OBJECTS = {
@@ -33,6 +35,8 @@ _OBJECTS = {
 __all__ = [
     "camera_sensor",
     "imx274",
+    "cam678",
+    "cam380",
     "CameraFrameFormat",
     "CameraSensor",
     "CameraSensorResource",

@@ -52,3 +52,5 @@ install(FILES
 # Add camera implementation subdirectories
 add_subdirectory(imx274)
 add_subdirectory(vb1940)
+add_subdirectory(cam678)
+add_subdirectory(cam380)

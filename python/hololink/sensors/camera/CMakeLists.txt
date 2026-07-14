@@ -22,3 +22,5 @@ pybind11_add_hololink_module(
 )
 
 add_subdirectory(imx274)
+add_subdirectory(cam678)
+add_subdirectory(cam380)
