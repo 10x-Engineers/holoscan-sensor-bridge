@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -165,6 +165,30 @@ class StereoApplication(holoscan.core.Application):
             rename_metadata=lambda name: f"right_{name}",
         )
 
+        compute_crc_left = hololink_module.operators.ComputeCrcOp(
+            self,
+            name="compute_crc_left",
+            frame_size=csi_to_bayer_operator_left.get_csi_length(),
+        )
+        check_crc_left = hololink_module.operators.CheckCrcOp(
+            self,
+            compute_crc_op=compute_crc_left,
+            name="check_crc_left",
+            computed_crc_metadata_name="check_crc_left",
+        )
+
+        compute_crc_right = hololink_module.operators.ComputeCrcOp(
+            self,
+            name="compute_crc_right",
+            frame_size=csi_to_bayer_operator_right.get_csi_length(),
+        )
+        check_crc_right = hololink_module.operators.CheckCrcOp(
+            self,
+            compute_crc_op=compute_crc_right,
+            name="check_crc_right",
+            computed_crc_metadata_name="check_crc_right",
+        )
+
         check_left = self._stereo_test.check_left(self)
         check_right = self._stereo_test.check_right(self)
         isp_left_in, isp_left_in_name, isp_left_out, isp_left_out_name = (
@@ -237,11 +261,13 @@ class StereoApplication(holoscan.core.Application):
         #
         self.add_flow(receiver_operator_left, check_left, {("output", "input")})
         self.add_flow(receiver_operator_right, check_right, {("output", "input")})
+        self.add_flow(check_left, compute_crc_left, {("output", "input")})
+        self.add_flow(compute_crc_left, check_crc_left, {("output", "input")})
+        self.add_flow(check_right, compute_crc_right, {("output", "input")})
+        self.add_flow(compute_crc_right, check_crc_right, {("output", "input")})
+        self.add_flow(check_crc_left, csi_to_bayer_operator_left, {("output", "input")})
         self.add_flow(
-            receiver_operator_left, csi_to_bayer_operator_left, {("output", "input")}
-        )
-        self.add_flow(
-            receiver_operator_right, csi_to_bayer_operator_right, {("output", "input")}
+            check_crc_right, csi_to_bayer_operator_right, {("output", "input")}
         )
         self.add_flow(
             csi_to_bayer_operator_left, isp_left_in, {("output", isp_left_in_name)}
@@ -499,7 +525,7 @@ def argus_isp(
         * rgba_components_per_pixel
         * ctypes.sizeof(ctypes.c_uint16)
         * pixel_height,
-        num_blocks=2,
+        num_blocks=4,
     )
     # 60fps is 16.67ms
     exposure_time_ms = 16.67
@@ -528,8 +554,9 @@ def linux_receiver_factory(
     hololink_channel,
     device,
     rename_metadata=lambda name: name,
+    affinity=None,
 ):
-    r = hololink_module.operators.LinuxReceiverOperator(
+    r = hololink_module.operators.LinuxReceiverOp(
         app,
         condition,
         name=name,
@@ -539,6 +566,8 @@ def linux_receiver_factory(
         device=device,
         rename_metadata=rename_metadata,
     )
+    if affinity is not None:
+        r.set_receiver_affinity(affinity)
     return r
 
 
@@ -554,6 +583,7 @@ def linux_coe_receiver_factory(
     hololink_channel,
     device,
     rename_metadata=lambda name: name,
+    affinity=None,
 ):
     r = hololink_module.operators.LinuxCoeReceiverOp(
         app,
@@ -567,6 +597,7 @@ def linux_coe_receiver_factory(
         pixel_width=pixel_width,
         coe_channel=coe_channel,
         rename_metadata=rename_metadata,
+        receiver_affinity=affinity,
     )
     return r
 
@@ -682,6 +713,17 @@ class MonoApplication(holoscan.core.Application):
             out_tensor_name="output",
         )
 
+        compute_crc_operator = hololink_module.operators.ComputeCrcOp(
+            self,
+            name="compute_crc",
+            frame_size=csi_to_bayer_operator.get_csi_length(),
+        )
+        check_crc_operator = hololink_module.operators.CheckCrcOp(
+            self,
+            compute_crc_op=compute_crc_operator,
+            name="check_crc_operator",
+        )
+
         visualizer = holoscan.operators.HolovizOp(
             self,
             name="holoviz",
@@ -704,7 +746,9 @@ class MonoApplication(holoscan.core.Application):
         )
 
         #
-        self.add_flow(receiver_operator, csi_to_bayer_operator, {("output", "input")})
+        self.add_flow(receiver_operator, compute_crc_operator, {("output", "input")})
+        self.add_flow(compute_crc_operator, check_crc_operator, {("output", "input")})
+        self.add_flow(check_crc_operator, csi_to_bayer_operator, {("output", "input")})
         self.add_flow(csi_to_bayer_operator, isp_in, {("output", isp_in_name)})
         self.add_flow(isp_out, visualizer, {(isp_out_name, "receivers")})
         self.add_flow(visualizer, monitor, {("camera_pose_output", "input")})

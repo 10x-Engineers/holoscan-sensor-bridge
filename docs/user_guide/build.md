@@ -12,30 +12,30 @@ container. This container is used to run all holoscan tests and examples.
    $ git clone https://github.com/nvidia-holoscan/holoscan-sensor-bridge
    ```
 
-1. Build the sensor bridge demonstration container. For systems with dGPU,
+1. Build the sensor bridge demonstration container. Use **dGPU** for IGX Orin with a
+   discrete GPU and OS configured as dGPU, and for x86_64 Linux hosts with an NVIDIA
+   discrete GPU (see the **x86 Linux** tab in [host setup](HostSetupTarget)). For
+   remaining platforms listed [here](HostSetupTarget), use **iGPU** below.
 
+`````{tab-set}
+````{tab-item} iGPU
+   ```none
+   $ cd holoscan-sensor-bridge
+   $ sh docker/build.sh --igpu
+   ```
+````
+````{tab-item} dGPU
    ```none
    $ cd holoscan-sensor-bridge
    $ sh docker/build.sh --dgpu
    ```
 
-   For systems with iGPU,
-
-   ```none
-   $ cd holoscan-sensor-bridge
-   $ sh docker/build.sh --igpu
-   ```
-
-   Notes:
-
-   - `--dgpu` requires a system with a dGPU installed (e.g. IGX with A6000 dGPU) and an
-     OS installed with appropriate dGPU support (e.g.
-     [IGX OS 1.1.2 Production Release](https://developer.nvidia.com/igx-downloads) with
-     dGPU).
-   - `--igpu` is appropriate for systems running on a system with iGPU (e.g. AGX
-     Orin/AGX Thor, IGX without a dGPU, or DGX Spark). This requires an OS installed
-     with iGPU support (e.g. for AGX Orin: JetPack 6.2.1, for IGX: IGX BaseOS with iGPU
-     configuration).
+   Note: If RoCE with GPUDirect RDMA fails at runtime (black image, or errors from
+   `roce_receiver.cpp` such as mismatched PSN metadata), rebuild to force the use
+   of pinned host memory instead by adding `--disable-roce-gpu-vram` to the command
+   above. Details are in the [x86 Linux](HostSetupTarget) host setup tab.
+````
+`````
 
 (RunningTestsTarget)=
 
@@ -67,7 +67,8 @@ pytest
 
 Note that the test fixture intentionally introduces errors into the software stack. As
 long as pytest indicates that all test have passed, any error messages published by
-individual tests can be ignored.
+individual tests can be ignored. If pytest itself reports failures, see the
+[troubleshooting page](troubleshooting.md).
 
 For systems with a sensor bridge device and IMX274, the test fixture can execute
 additional tests that prove that the device and network connections are working as

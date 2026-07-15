@@ -209,8 +209,6 @@ class MicroApplication(holoscan.core.Application):
             headless=self._headless,
             framebuffer_srgb=True,
             tensors=[left_spec, right_spec],
-            height=1920,
-            width=1080,
         )
 
         self.add_flow(
@@ -251,7 +249,11 @@ def main():
         default=None,
         help="Exit after receiving this many frames",
     )
-
+    parser.add_argument(
+        "--hololink",
+        default="192.168.0.2",
+        help="IP address of Hololink board",
+    )
     parser.add_argument(
         "--log-level",
         type=int,
@@ -289,17 +291,7 @@ def main():
     assert cu_result == cuda.CUresult.CUDA_SUCCESS
 
     # Get a handle to the Hololink device
-    if args.cam == 0:
-        channel_metadata = hololink_module.Enumerator.find_channel(
-            channel_ip="192.168.0.2"
-        )
-    elif args.cam == 1:
-        channel_metadata = hololink_module.Enumerator.find_channel(
-            channel_ip="192.168.0.3"
-        )
-    else:
-        raise Exception(f"Unexpected camera={args.cam}")
-
+    channel_metadata = hololink_module.Enumerator.find_channel(channel_ip=args.hololink)
     channel_metadata_left = hololink_module.Metadata(channel_metadata)
     hololink_module.DataChannel.use_sensor(channel_metadata_left, 0)
     hololink_channel_left = hololink_module.DataChannel(channel_metadata_left)

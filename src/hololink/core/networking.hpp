@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +21,7 @@
 #include <unistd.h> // for close()
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -37,6 +38,9 @@ constexpr uint32_t UDP_PACKET_SIZE = 10240;
 
 // All our I/O are aligned to this page size.
 constexpr uint32_t PAGE_SIZE = 128;
+
+// The default MTU comes from the TCP/IP specification.
+constexpr uint32_t DEFAULT_MTU = 1500;
 
 // Round up
 size_t round_up(size_t value, size_t alignment);
