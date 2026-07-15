@@ -1,23 +1,30 @@
 /**
- * cam678_emulator.cpp
- * Receives I2C packets sent by cam678_example.py and prints them.
- * Same structure as i2c_logging_emulator.cpp — already proven to compile.
+ * cam678_emulator.cpp — Updated for hololink 2.6.0
+ * Receives I2C packets sent by cam678_example.py / cam678_example and prints them.
  *
- * Compile:
+ * Changes from 2.5.0:
+ *   - linux_data_plane.hpp  →  rocev2_data_plane.hpp
+ *   - LinuxDataPlane        →  RoCEv2DataPlane
+ *   - i2c_transaction signature: std::vector  →  raw pointers (uint16_t addr)
+ *
+ * Compile (from /opt/hololink):
+ *   HOLOLINK_LIBS=/usr/local/lib/python3.10/dist-packages/lib
  *   g++ -std=c++17 -O2 \
  *       -I src/ \
  *       -I src/hololink/emulation/src \
- *       -I src/hololink/emulation/src/linux \
+ *       -I /opt/nvidia/holoscan/include \
  *       -I /opt/nvidia/holoscan/include/3rdparty \
  *       cam678_emulator.cpp \
- *       build/src/hololink/emulation/libemulationcoe.a \
- *       build/src/hololink/emulation/libemulationroce.a \
- *       build/src/hololink/operators/emulator/liblinux_data_plane.a \
- *       build/src/hololink/common/libhololink.a \
- *       build/src/hololink/core/libhololink_core.a \
- *       build/src/hololink/emulation/sensors/libemulation_sensors.a \
- *       build/src/hololink/emulation/libemulation.a \
- *       -L /usr/local/cuda/lib64 -lcudart -lz -lpthread \
+ *       ${HOLOLINK_LIBS}/libemulationcoe.a \
+ *       ${HOLOLINK_LIBS}/libemulationroce.a \
+ *       ${HOLOLINK_LIBS}/liblinux_data_plane.a \
+ *       ${HOLOLINK_LIBS}/libemulation_host.a \
+ *       ${HOLOLINK_LIBS}/libemulation_sensors.a \
+ *       ${HOLOLINK_LIBS}/libhololink.a \
+ *       ${HOLOLINK_LIBS}/libhololink_core.a \
+ *       ${HOLOLINK_LIBS}/libemulation_common.a \
+ *       /usr/local/cuda-12.6/targets/aarch64-linux/lib/libcudart.so \
+ *       -lz -lpthread \
  *       -o cam678_emulator
  *
  * Run:
@@ -30,11 +37,10 @@
 #include <cstring>
 #include <chrono>
 #include <thread>
-#include <vector>
 
 #include "hololink/emulation/hsb_emulator.hpp"
 #include "hololink/emulation/i2c_interface.hpp"
-#include "hololink/emulation/linux_data_plane.hpp"
+#include "hololink/emulation/rocev2_data_plane.hpp"   // 2.6.0: was linux_data_plane.hpp
 #include "hololink/emulation/net.hpp"
 
 using namespace hololink::emulation;
@@ -69,44 +75,43 @@ public:
         ctrl.attach_i2c_peripheral(bus, dev_addr_, this);
     }
 
-    // 2.5.0 vector-based signature
+    // ── 2.6.0 raw pointer signature ───────────────────────────────────────────
     I2CStatus i2c_transaction(
-        uint8_t                     peripheral_address,
-        const std::vector<uint8_t>& write_bytes,
-        std::vector<uint8_t>&       read_bytes) override
+        uint16_t        peripheral_address,
+        const uint8_t*  write_bytes,
+        uint16_t        write_size,
+        uint8_t*        read_bytes,
+        uint16_t        read_size) override
     {
         if (peripheral_address != dev_addr_)
             return I2CStatus::I2C_STATUS_INVALID_PERIPHERAL_ADDRESS;
-        if (write_bytes.size() < 2)
+        if (write_size < 2)
             return I2CStatus::I2C_STATUS_INVALID_REGISTER_ADDRESS;
 
         uint16_t reg = (static_cast<uint16_t>(write_bytes[0]) << 8)
                      |  static_cast<uint16_t>(write_bytes[1]);
         ++count_;
 
-        if (write_bytes.size() > 2) {
+        if (write_size > 2) {
             // ── WRITE ─────────────────────────────────────────────────────────
-            uint16_t data_len = write_bytes.size() - 2;
-            printf("[CAM678 WRITE #%u]  reg=0x%04X  len=%u  bytes:",
-                   count_, reg, data_len);
-            for (size_t i = 2; i < write_bytes.size(); ++i) {
-                printf(" 0x%02X", write_bytes[i]);
-                if (reg + (i - 2) < sizeof(regs_))
-                    regs_[reg + (i - 2)] = write_bytes[i];
+            uint16_t data_len = write_size - 2;
+            printf("[CAM678 WRITE #%3u]  reg=0x%04X  bytes:", count_, reg);
+            for (uint16_t i = 0; i < data_len; ++i) {
+                printf(" 0x%02X", write_bytes[2 + i]);
+                if (reg + i < sizeof(regs_))
+                    regs_[reg + i] = write_bytes[2 + i];
             }
             printf("\n");
-            annotate_write(reg, write_bytes.data() + 2, data_len);
+            annotate_write(reg, write_bytes + 2, data_len);
         } else {
             // ── READ ──────────────────────────────────────────────────────────
-            size_t n = read_bytes.size();
-            printf("[CAM678 READ  #%u]  reg=0x%04X  len=%zu  returned:",
-                   count_, reg, n);
-            for (size_t i = 0; i < n; ++i) {
+            printf("[CAM678 READ  #%3u]  reg=0x%04X  returned:", count_, reg);
+            for (uint16_t i = 0; i < read_size; ++i) {
                 read_bytes[i] = (reg + i < sizeof(regs_)) ? regs_[reg + i] : 0x00;
                 printf(" 0x%02X", read_bytes[i]);
             }
             printf("\n");
-            annotate_read(reg, n);
+            annotate_read(reg);
         }
         return I2CStatus::I2C_STATUS_SUCCESS;
     }
@@ -125,7 +130,7 @@ private:
             printf("           -> MODE_SELECT: %s\n",
                    data[0] ? "STREAM ON  ← cam678 start()" : "STANDBY  ← cam678 stop() / configure()");
             break;
-        // ── Global config (access codes) ──────────────────────────────────────
+        // ── Global config ─────────────────────────────────────────────────────
         case 0x30EB: printf("           -> access code byte\n"); break;
         case 0x300A: printf("           -> access code 0xFF\n"); break;
         // ── CSI config ───────────────────────────────────────────────────────
@@ -152,11 +157,11 @@ private:
         }
     }
 
-    void annotate_read(uint16_t reg, size_t /*n*/)
+    void annotate_read(uint16_t reg)
     {
         switch (reg) {
-        case 0x0000: printf("           -> Chip ID read  ← get_version()\n"); break;
-        case 0x0001: printf("           -> Chip ID LSB   ← get_version()\n"); break;
+        case 0x0000: printf("           -> Chip ID MSB  ← get_version()\n"); break;
+        case 0x0001: printf("           -> Chip ID LSB  ← get_version()\n"); break;
         default: break;
         }
     }
@@ -174,24 +179,24 @@ int main()
     signal(SIGTERM, sig_handler);
 
     printf("============================================\n");
-    printf("  cam678 I2C Logging Emulator\n");
+    printf("  cam678 I2C Logging Emulator (2.6.0)\n");
     printf("  Emulator IP : %s\n", EMULATOR_IP);
     printf("  cam678 addr : 0x%02X\n", CAM678_I2C_ADDRESS);
     printf("  I2C bus     : %u\n", CAM_I2C_BUS);
     printf("============================================\n\n");
 
     HSBEmulator   hsb;
-    LinuxDataPlane dp(hsb,
-                      IPAddress_from_string(EMULATOR_IP),
-                      DATA_PLANE_ID,
-                      SENSOR_ID);
+    RoCEv2DataPlane dp(hsb,                           // 2.6.0: was LinuxDataPlane
+                       IPAddress_from_string(EMULATOR_IP),
+                       DATA_PLANE_ID,
+                       SENSOR_ID);
 
     Cam678I2CPeripheral periph(CAM678_I2C_ADDRESS);
     periph.attach_to_i2c(hsb.get_i2c(I2C_CTRL_ADDR), CAM_I2C_BUS);
 
     hsb.start();
 
-    printf("[cam678_emulator] Running — waiting for cam678_example.py\n");
+    printf("[cam678_emulator] Running — waiting for cam678_example\n");
     printf("[cam678_emulator] Ctrl-C to stop.\n\n");
 
     while (g_running)
